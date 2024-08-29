@@ -31,7 +31,7 @@ Esegui il programma con il seguente comando:
 - --csv: Il percorso del file .csv di output.
 
 ## Esempio
-`python script.py --blf log.blf --dbc data_first.dbc data_second.dbc`
+`python converter.py --blf log.blf --dbc data_first.dbc data_second.dbc`
 
 ## Contributi
 I contributi sono benvenuti! Sentiti libero di aprire issue e pull request.
