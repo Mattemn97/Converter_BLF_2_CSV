@@ -5,25 +5,38 @@ import cantools
 from tqdm import tqdm
 
 
-def convert_blf_to_csv(dbc_file, blf_file, csv_file):
+def load_dbc_file(dbc_file):
+    """Load the DBC file and return the database object."""
+    return cantools.db.load_file(dbc_file, strict=False)
+
+
+def extract_signals_from_dbc(db):
+    """Extract message names and signal names from the DBC database."""
     msg_list = []
     sgn_list = []
 
-    db = cantools.db.load_file(dbc_file, strict=False)
-    can_log = can.BLFReader(blf_file)
-
     messages_list = db.messages
-
     for msg in tqdm(messages_list, desc="Reading signals in .dbc"):
         for sgn in msg.signal_tree:
             msg_list.append(str(msg.name))
             sgn_list.append(str(sgn))
 
-    output = [[] for _ in range(len(sgn_list) + 1)]
-    first = True
+    return msg_list, sgn_list
 
-    for i in range(len(sgn_list)):
-        output[i + 1].append(f"{msg_list[i]} :-: {sgn_list[i]}")
+
+def initialize_output_structure(sgn_list):
+    """Initialize the structure for storing the output CSV data."""
+    output = [[] for _ in range(len(sgn_list) + 1)]
+    for i, sgn in enumerate(sgn_list):
+        output[i + 1].append(f"{sgn}")
+
+    return output
+
+
+def process_blf_file(db, blf_file, msg_list, sgn_list, output):
+    """Process the BLF file and fill in the output structure with decoded signal values."""
+    can_log = can.BLFReader(blf_file)
+    first = True
 
     for msg in tqdm(can_log, desc="Reading signals in .blf"):
         try:
@@ -35,20 +48,34 @@ def convert_blf_to_csv(dbc_file, blf_file, csv_file):
                 output[0].append("Timestamp")
             else:
                 output[0].append(msg.timestamp - start_abs)
-            if set(sgn_list) & set(cur_frame):
-                for i in range(len(sgn_list)):
-                    if sgn_list[i] in cur_frame and msg_name == msg_list[i]:
-                        output[i + 1].append(cur_frame[sgn_list[i]])
-                    else:
-                        output[i + 1].append('')
-        except:
+
+            for i in range(len(sgn_list)):
+                if sgn_list[i] in cur_frame and msg_name == msg_list[i]:
+                    output[i + 1].append(cur_frame[sgn_list[i]])
+                else:
+                    output[i + 1].append('')
+
+        except KeyError:
             pass
 
-    output = zip(*output)
+    return output
+
+
+def write_csv(output, csv_file):
+    """Write the output structure to a CSV file."""
     print("Creating .csv file")
     with open(csv_file, "w", newline='') as f:
         writer = csv.writer(f, delimiter=';')
-        writer.writerows(output)
+        writer.writerows(zip(*output))
+
+
+def convert_blf_to_csv(dbc_file, blf_file, csv_file):
+    """Main function to convert a BLF file to a CSV file using a DBC file."""
+    db = load_dbc_file(dbc_file)
+    msg_list, sgn_list = extract_signals_from_dbc(db)
+    output = initialize_output_structure(sgn_list)
+    output = process_blf_file(db, blf_file, msg_list, sgn_list, output)
+    write_csv(output, csv_file)
 
 
 if __name__ == "__main__":
