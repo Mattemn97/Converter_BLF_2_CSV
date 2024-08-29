@@ -1,4 +1,5 @@
 import argparse
+import os
 import can
 import csv
 import cantools
@@ -16,7 +17,7 @@ def extract_signals_from_dbc(db):
     sgn_list = []
 
     messages_list = db.messages
-    for msg in tqdm(messages_list, desc="Reading signals in .dbc"):
+    for msg in tqdm(messages_list, desc=f"Reading signals in {os.path.basename(db.filename)}"):
         for sgn in msg.signal_tree:
             msg_list.append(str(msg.name))
             sgn_list.append(str(sgn))
@@ -38,7 +39,7 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output):
     can_log = can.BLFReader(blf_file)
     first = True
 
-    for msg in tqdm(can_log, desc="Reading signals in .blf"):
+    for msg in tqdm(can_log, desc=f"Reading signals in {os.path.basename(blf_file)}"):
         try:
             msg_name = db.get_message_by_frame_id(msg.arbitration_id).name
             cur_frame = db.decode_message(msg.arbitration_id, msg.data, decode_choices=False)
@@ -61,29 +62,34 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output):
     return output
 
 
-def write_csv(output, csv_file):
-    """Write the output structure to a CSV file."""
-    print("Creating .csv file")
-    with open(csv_file, "w", newline='') as f:
+def write_csv(output, dbc_file, blf_file):
+    """Write the output structure to a CSV file with a name based on the DBC and BLF filenames."""
+    dbc_basename = os.path.splitext(os.path.basename(dbc_file))[0]
+    blf_basename = os.path.splitext(os.path.basename(blf_file))[0]
+    csv_filename = f"{dbc_basename}_{blf_basename}.csv"
+
+    print(f"Creating {csv_filename}")
+    with open(csv_filename, "w", newline='') as f:
         writer = csv.writer(f, delimiter=';')
         writer.writerows(zip(*output))
 
 
-def convert_blf_to_csv(dbc_file, blf_file, csv_file):
-    """Main function to convert a BLF file to a CSV file using a DBC file."""
-    db = load_dbc_file(dbc_file)
-    msg_list, sgn_list = extract_signals_from_dbc(db)
-    output = initialize_output_structure(sgn_list)
-    output = process_blf_file(db, blf_file, msg_list, sgn_list, output)
-    write_csv(output, csv_file)
+def convert_blf_to_csv(dbc_files, blf_file):
+    """Main function to convert a BLF file to multiple CSV files using multiple DBC files."""
+    for dbc_file in dbc_files:
+        db = load_dbc_file(dbc_file)
+        msg_list, sgn_list = extract_signals_from_dbc(db)
+        output = initialize_output_structure(sgn_list)
+        output = process_blf_file(db, blf_file, msg_list, sgn_list, output)
+        write_csv(output, dbc_file, blf_file)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert BLF files to CSV using a DBC file.")
+    parser = argparse.ArgumentParser(description="Convert BLF files to CSV using one or more DBC files.")
     parser.add_argument("--blf", required=True, help="The path to the .blf file to convert.")
-    parser.add_argument("--dbc", required=True, help="The path to the .dbc file used for interpreting CAN messages.")
-    parser.add_argument("--csv", required=True, help="The path to the output .csv file.")
+    parser.add_argument("--dbc", required=True, nargs='+',
+                        help="The path(s) to the .dbc file(s) used for interpreting CAN messages.")
 
     args = parser.parse_args()
 
-    convert_blf_to_csv(args.dbc, args.blf, args.csv)
+    convert_blf_to_csv(args.dbc, args.blf)
