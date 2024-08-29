@@ -11,13 +11,13 @@ def load_dbc_file(dbc_file):
     return cantools.db.load_file(dbc_file, strict=False)
 
 
-def extract_signals_from_dbc(db):
+def extract_signals_from_dbc(db, dbc_file_name):
     """Extract message names and signal names from the DBC database."""
     msg_list = []
     sgn_list = []
 
     messages_list = db.messages
-    for msg in tqdm(messages_list, desc=f"Reading signals in {os.path.basename(db.filename)}"):
+    for msg in tqdm(messages_list, desc=f"Reading signals in {os.path.basename(dbc_file_name)}"):
         for sgn in msg.signal_tree:
             msg_list.append(str(msg.name))
             sgn_list.append(str(sgn))
@@ -78,7 +78,7 @@ def convert_blf_to_csv(dbc_files, blf_file):
     """Main function to convert a BLF file to multiple CSV files using multiple DBC files."""
     for dbc_file in dbc_files:
         db = load_dbc_file(dbc_file)
-        msg_list, sgn_list = extract_signals_from_dbc(db)
+        msg_list, sgn_list = extract_signals_from_dbc(db, dbc_file)
         output = initialize_output_structure(sgn_list)
         output = process_blf_file(db, blf_file, msg_list, sgn_list, output)
         write_csv(output, dbc_file, blf_file)

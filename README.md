@@ -23,15 +23,14 @@ Posiziona il tuo file .blf e il file .dbc nella directory del progetto.
 
 Esegui il programma con il seguente comando:
 
-`python convert.py --blf tuo_file.blf --dbc tuo_file.dbc --csv output.csv`
+`python convert.py --blf tuo_file.blf --dbc tuo_file.dbc`
 
 ### Argomenti
 - --blf: Il percorso del file .blf da convertire.
-- --dbc: Il percorso del file .dbc da utilizzare per l’interpretazione dei messaggi CAN.
-- --csv: Il percorso del file .csv di output.
+- --dbc: Il percorso dei file .dbc da utilizzare per l’interpretazione dei messaggi CAN.
 
 ## Esempio
-`python converter.py --blf log.blf --dbc data_first.dbc data_second.dbc`
+`python converter.py --blf log.blf --dbc data_primo.dbc data_secondo.dbc`
 
 ## Contributi
 I contributi sono benvenuti! Sentiti libero di aprire issue e pull request.
