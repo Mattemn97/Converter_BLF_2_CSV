@@ -1,4 +1,4 @@
-# Converter_BLF_2_CSV
+# Converter_BLF/TRC_2_CSV
 Questo programma converte i file di log in formato .blf della rete CAN in file .csv utilizzabili facilmente da ogni tipo di plotter, come PlotJuggler, tramite un file .dbc.
 
 ## Caratteristiche
