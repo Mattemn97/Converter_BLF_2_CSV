@@ -1,4 +1,3 @@
-import argparse
 import os
 import can
 import csv
@@ -9,11 +8,9 @@ from tqdm import tqdm
 def load_dbc_file(dbc_file):
     """Load the DBC file and return the database object."""
     try:
-        db = cantools.db.load_file(dbc_file, strict=False)
-        return db
-    except (FileNotFoundError, cantools.db.errors.DatabaseLoadError) as e:
-        print(f"Error loading DBC file '{dbc_file}': {e}")
-        raise
+        return cantools.db.load_file(dbc_file, strict=False)
+    except Exception as e:
+        raise RuntimeError(f"Error loading DBC file '{dbc_file}': {e}")
 
 
 def extract_signals_from_dbc(db, dbc_file_name):
@@ -23,85 +20,68 @@ def extract_signals_from_dbc(db, dbc_file_name):
 
     try:
         messages_list = db.messages
-        for msg in tqdm(
-            messages_list, desc=f"Reading signals in {os.path.basename(dbc_file_name)}"
-        ):
+        for msg in messages_list:
             for sgn in msg.signal_tree:
                 msg_list.append(str(msg.name))
                 sgn_list.append(str(sgn))
-    except AttributeError as e:
-        print(f"Error extracting signals from DBC file '{dbc_file_name}': {e}")
-        raise
 
-    return msg_list, sgn_list
+        return msg_list, sgn_list
+
+    except Exception as e:
+        raise RuntimeError(f"Error extracting signals from DBC file '{dbc_file_name}': {e}")
 
 
 def initialize_output_structure(sgn_list):
-    """Initialize the structure for storing the output CSV data and signal values."""
-    try:
-        output = [[] for _ in range(len(sgn_list) + 1)]
-        current_values = [0] * len(sgn_list)  # Initialize all signals to 0
-        for i, sgn in enumerate(sgn_list):
-            output[i + 1].append(f"{sgn}")
-        return output, current_values
-    except Exception as e:
-        print(f"Error initializing output structure: {e}")
-        raise
+    """Initialize the structure for storing the output CSV data."""
+    output = [[] for _ in range(len(sgn_list) + 1)]
+    for i, sgn in enumerate(sgn_list):
+        output[i + 1].append(f"{sgn}")
+    current_values = [None] * len(sgn_list)  # Initialize current values for signals
+    return output, current_values
 
 
-def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values):
+def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values, progress_callback):
     """Process the BLF file and fill in the output structure with decoded signal values."""
     try:
         can_log = can.BLFReader(blf_file)
-    except (FileNotFoundError, can.CanError) as e:
-        print(f"Error opening BLF file '{blf_file}': {e}")
-        raise
+        first = True
+        total_messages = len(list(can_log))  # Get the total number of messages for progress tracking
+        can_log = can.BLFReader(blf_file)  # Reset the iterator after counting
 
-    first = True
-    previous_values = current_values.copy()  # Store previous signal values
-
-    try:
-        for msg in tqdm(can_log, desc=f"Reading signals in {os.path.basename(blf_file)}"):
+        for idx, msg in enumerate(tqdm(can_log, desc=f"Reading signals in {os.path.basename(blf_file)}")):
             try:
                 msg_name = db.get_message_by_frame_id(msg.arbitration_id).name
-                cur_frame = db.decode_message(
-                    msg.arbitration_id, msg.data, decode_choices=False
-                )
+                cur_frame = db.decode_message(msg.arbitration_id, msg.data, decode_choices=False)
 
                 if first:
                     first = False
                     start_abs = msg.timestamp
                     output[0].append("Timestamp")
 
-                timestamp = msg.timestamp - start_abs
-                row = [timestamp]  # Start with timestamp
-                has_changes = False  # Flag to track changes in signals
+                output[0].append(msg.timestamp - start_abs)
 
-                # Update current signal values and check for changes
+                value_changed = False  # To track if any value changes in this iteration
+
                 for i in range(len(sgn_list)):
                     if sgn_list[i] in cur_frame and msg_name == msg_list[i]:
-                        current_value = cur_frame[sgn_list[i]]
-                        if current_value != previous_values[i]:
-                            current_values[i] = current_value  # Update only if value changed
-                            has_changes = True  # Flag indicates change
-                    row.append(current_values[i])
+                        new_value = cur_frame[sgn_list[i]]
+                        if current_values[i] != new_value:
+                            current_values[i] = new_value
+                            value_changed = True
+                        output[i + 1].append(new_value)
+                    else:
+                        output[i + 1].append(current_values[i])
 
-                if has_changes:  # Write row only if there were changes in signal values
-                    previous_values = current_values.copy()  # Update previous values
-                    for i in range(len(row)):
-                        output[i].append(row[i])
+                if value_changed:
+                    progress_callback(idx + 1, total_messages, f"Processing message {idx + 1}/{total_messages}")
 
-            except KeyError as e:
-                print(f"Error decoding message: {e}")
-                continue  # Ignore undecodable messages
-            except Exception as e:
-                print(f"Unexpected error while processing message: {e}")
-                continue  # Ignore other general errors
+            except KeyError:
+                pass  # Skip messages not found in the DBC
+
+        progress_callback(100, 100, "Finished reading BLF file")
+
     except Exception as e:
-        print(f"Error processing BLF file '{blf_file}': {e}")
-        raise
-
-    return output
+        raise RuntimeError(f"Error processing BLF file '{blf_file}': {e}")
 
 
 def write_csv(output, dbc_file, blf_file):
@@ -111,49 +91,31 @@ def write_csv(output, dbc_file, blf_file):
         blf_basename = os.path.splitext(os.path.basename(blf_file))[0]
         csv_filename = f"{dbc_basename}_{blf_basename}.csv"
 
-        print(f"Creating {csv_filename}")
         with open(csv_filename, "w", newline='') as f:
             writer = csv.writer(f, delimiter=';')
             writer.writerows(zip(*output))
-    except (OSError, IOError) as e:
-        print(f"Error writing CSV file '{csv_filename}': {e}")
-        raise
+
     except Exception as e:
-        print(f"Unexpected error while writing CSV: {e}")
-        raise
+        raise RuntimeError(f"Error writing CSV file: {e}")
 
 
-def convert_blf_to_csv(dbc_files, blf_file):
+def convert_blf_to_csv(dbc_folder, blf_file, progress_callback):
     """Main function to convert a BLF file to multiple CSV files using multiple DBC files."""
-    for dbc_file in dbc_files:
-        try:
+    try:
+        dbc_files = [os.path.join(dbc_folder, f) for f in os.listdir(dbc_folder) if f.endswith('.dbc')]
+        if not dbc_files:
+            progress_callback(0, 1, f"No DBC files found in the folder '{dbc_folder}'")
+            return
+
+        total_files = len(dbc_files)
+        for i, dbc_file in enumerate(dbc_files, start=1):
+            progress_callback(i, total_files, f"Processing DBC file {os.path.basename(dbc_file)}")
             db = load_dbc_file(dbc_file)
             msg_list, sgn_list = extract_signals_from_dbc(db, dbc_file)
             output, current_values = initialize_output_structure(sgn_list)
-            output = process_blf_file(
-                db, blf_file, msg_list, sgn_list, output, current_values
-            )
+            process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values, progress_callback)
             write_csv(output, dbc_file, blf_file)
-        except Exception as e:
-            print(f"Error in conversion with DBC file '{dbc_file}': {e}")
-            continue  # If one DBC file fails, continue with the next one
 
-
-if __name__ == "__main__":
-    try:
-        parser = argparse.ArgumentParser(
-            description="Convert BLF files to CSV using one or more DBC files."
-        )
-        parser.add_argument("--blf", required=True, help="The path to the .blf file to convert.")
-        parser.add_argument(
-            "--dbc",
-            required=True,
-            nargs='+',
-            help="The path(s) to the .dbc file(s) used for interpreting CAN messages.",
-        )
-
-        args = parser.parse_args()
-
-        convert_blf_to_csv(args.dbc, args.blf)
+        progress_callback(total_files, total_files, "Conversion completed!")
     except Exception as e:
-        print(f"Fatal error: {e}")
+        progress_callback(0, 1, f"Error during conversion: {e}")
