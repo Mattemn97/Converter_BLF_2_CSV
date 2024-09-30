@@ -63,7 +63,8 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values):
     try:
         for msg in tqdm(can_log, desc=f"Reading signals in {os.path.basename(blf_file)}"):
             try:
-                msg_name = db.get_message_by_frame_id(msg.arbitration_id).name
+                message = db.get_message_by_frame_id(msg.arbitration_id)
+                msg_name = message.name
                 cur_frame = db.decode_message(
                     msg.arbitration_id, msg.data, decode_choices=False
                 )
@@ -73,6 +74,19 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values):
                     start_abs = msg.timestamp
                     output[0].append("Timestamp")
 
+                    # Add signal names to the header with units if present
+                    for i in range(len(sgn_list)):
+                        signal_obj = message.get_signal_by_name(sgn_list[i])
+                        if signal_obj:
+                            # Append unit if available
+                            unit = signal_obj.unit if signal_obj.unit else ""
+                            if unit:
+                                output[0].append(f"{sgn_list[i]} [{unit}]")
+                            else:
+                                output[0].append(sgn_list[i])
+                        else:
+                            output[0].append(sgn_list[i])
+
                 timestamp = msg.timestamp - start_abs
                 row = [timestamp]  # Start with timestamp
                 has_changes = False  # Flag to track changes in signals
@@ -80,9 +94,13 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values):
                 # Update current signal values and check for changes
                 for i in range(len(sgn_list)):
                     if sgn_list[i] in cur_frame and msg_name == msg_list[i]:
-                        current_value = cur_frame[sgn_list[i]]
-                        if current_value != previous_values[i]:
-                            current_values[i] = current_value  # Update only if value changed
+                        # Apply gain (factor) and offset
+                        scaled_value = cur_frame[sgn_list[i]]
+                        signal_obj = message.get_signal_by_name(sgn_list[i])
+
+                        # Update only if the value has changed
+                        if scaled_value != previous_values[i]:
+                            current_values[i] = scaled_value
                             has_changes = True  # Flag indicates change
                     row.append(current_values[i])
 
@@ -92,16 +110,18 @@ def process_blf_file(db, blf_file, msg_list, sgn_list, output, current_values):
                         output[i].append(row[i])
 
             except KeyError as e:
-                print(f"Error decoding message: {e}")
+                #print(f"Error decoding message: {e}")
                 continue  # Ignore undecodable messages
             except Exception as e:
-                print(f"Unexpected error while processing message: {e}")
+                #print(f"Unexpected error while processing message: {e}")
                 continue  # Ignore other general errors
     except Exception as e:
         print(f"Error processing BLF file '{blf_file}': {e}")
         raise
 
     return output
+
+
 
 
 def write_csv(output, dbc_file, blf_file):
